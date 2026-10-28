@@ -1,0 +1,9 @@
+{
+  "site": {
+    "name": "Hello, Statico",
+    "description": "A tiny site made in the Statico playground.",
+    "author": "You",
+    "language": "en"
+  },
+  "markdown": { "highlight": "base16-eighties.dark" }
+}

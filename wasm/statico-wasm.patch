@@ -1,0 +1,172 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -7,7 +7,7 @@
+ 
+ [dependencies]
+ anyhow = "1"
+-clap = { version = "4", features = ["derive"] }
++clap = { version = "4", features = ["derive"], optional = true }
+ serde = { version = "1", features = ["derive"] }
+ serde_json = { version = "1", features = ["preserve_order"] }
+ serde_yaml = "0.9"
+@@ -15,23 +15,23 @@
+ regex = "1"
+ walkdir = "2"
+ rayon = "1"
+-axum = "0.8"
+-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "net", "time"] }
+-tokio-stream = { version = "0.1", features = ["sync"] }
+-tower-http = { version = "0.6", features = ["fs"] }
+-notify = "8"
+-ureq = { version = "3", features = ["platform-verifier"] }
+-zip = { version = "4", default-features = false, features = ["deflate"] }
+-open = "5"
+-mime_guess = "2"
++axum = { version = "0.8", optional = true }
++tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "net", "time"], optional = true }
++tokio-stream = { version = "0.1", features = ["sync"], optional = true }
++tower-http = { version = "0.6", features = ["fs"], optional = true }
++notify = { version = "8", optional = true }
++ureq = { version = "3", features = ["platform-verifier"], optional = true }
++zip = { version = "4", default-features = false, features = ["deflate"], optional = true }
++open = { version = "5", optional = true }
++mime_guess = { version = "2", optional = true }
+ syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+ toml = "0.9"
+ csv = "1"
+ imagesize = "0.14"
+ chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+-flate2 = "1"
+-tar = "0.4"
+-ring = "0.17"
++flate2 = { version = "1", optional = true }
++tar = { version = "0.4", optional = true }
++ring = { version = "0.17", optional = true }
+ 
+ [dev-dependencies]
+ insta = "1"
+@@ -43,6 +43,10 @@
+ codegen-units = 1
+ strip = true
+ 
++[features]
++default = ["cli"]
++cli = ["dep:clap", "dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower-http", "dep:notify", "dep:ureq", "dep:zip", "dep:open", "dep:mime_guess", "dep:ring", "dep:flate2", "dep:tar"]
++
+ [lib]
+ name = "statico"
+ path = "src/lib.rs"
+@@ -50,3 +54,8 @@
+ [[bin]]
+ name = "statico"
+ path = "src/main.rs"
++required-features = ["cli"]
++
++[[bin]]
++name = "statico-wasm"
++path = "src/bin/wasm.rs"
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -5,16 +5,26 @@
+ pub mod build;
+ pub mod check;
+ pub mod config;
++#[cfg(feature = "cli")]
+ pub mod dev;
+ pub mod diag;
+ pub mod diff;
+ pub mod docs;
+ pub mod feeds;
+ pub mod markdown;
++#[cfg(feature = "cli")]
+ pub mod new;
+ pub mod postprocess;
+ pub mod scaffold;
+ pub mod seo;
+ pub mod site;
+ pub mod template;
++#[cfg(feature = "cli")]
+ pub mod tools;
++/// Without the CLI there is nothing to download: Tailwind and esbuild are
++/// simply not available, and assets are copied as they are.
++#[cfg(not(feature = "cli"))]
++pub mod tools {
++    pub fn tailwind(_major: u8) -> Option<std::path::PathBuf> { None }
++    pub fn esbuild() -> Option<std::path::PathBuf> { None }
++}
+--- a/src/build.rs
++++ b/src/build.rs
+@@ -190,6 +190,10 @@
+ 
+     // 2. CSS and JS, in parallel.
+     if !opts.skip_tools {
++        // WebAssembly has no threads: build one after the other there.
++        #[cfg(target_family = "wasm")]
++        let (css, js) = (assets::build_css(&site, &out), assets::build_js(&site, &out));
++        #[cfg(not(target_family = "wasm"))]
+         let (css, js) = std::thread::scope(|s| {
+             let css = s.spawn(|| assets::build_css(&site, &out));
+             let js = s.spawn(|| assets::build_js(&site, &out));
+--- a/src/site.rs
++++ b/src/site.rs
+@@ -105,6 +105,11 @@
+ 
+ impl Site {
+     pub fn load(root: &Path, mode: Mode, url_override: Option<String>) -> Result<Self> {
++        // A browser's WASI has no realpath; the path it is given is already
++        // absolute there.
++        #[cfg(target_family = "wasm")]
++        let root = root.to_path_buf();
++        #[cfg(not(target_family = "wasm"))]
+         let root = root
+             .canonicalize()
+             .with_context(|| format!("cannot open project at {}", root.display()))?;
+@@ -949,6 +954,7 @@
+ /// collection's `OnceLock` while it loads, and a rayon worker waiting on a
+ /// `par_iter` steals other jobs meanwhile: if it stole a page that needs the
+ /// same collection, it would wait on its own initialisation forever.
++#[cfg(not(target_family = "wasm"))]
+ static LOADER: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
+     rayon::ThreadPoolBuilder::new()
+         .thread_name(|i| format!("statico-load-{i}"))
+@@ -959,7 +965,12 @@
+ /// Run `op` on [`LOADER`] and block until it finishes. The hop through a plain
+ /// thread matters: a page worker calling `LOADER.install` directly would still
+ /// steal page jobs while it waits.
++#[cfg(target_family = "wasm")]
+ fn off_the_page_pool<T: Send>(op: impl FnOnce() -> T + Send) -> T {
++    op()
++}
++#[cfg(not(target_family = "wasm"))]
++fn off_the_page_pool<T: Send>(op: impl FnOnce() -> T + Send) -> T {
+     std::thread::scope(|s| {
+         s.spawn(|| LOADER.install(op))
+             .join()
+--- /dev/null
++++ b/src/bin/wasm.rs
+@@ -0,0 +1,25 @@
++//! Statico for the browser playground (WASI): builds the site in the given
++//! directory into `<dir>/_site` and prints the build report as JSON. The
++//! optional second argument is the site's URL, so a preview served under a
++//! sub-path gets its links prefixed. There is nothing to download here, so
++//! Tailwind and esbuild are skipped and assets are copied as they are.
++fn main() {
++    let mut args = std::env::args().skip(1);
++    let root = std::path::PathBuf::from(args.next().unwrap_or_else(|| "/site".into()));
++    let opts = statico::build::BuildOptions {
++        url: args.next(),
++        out: None,
++        skip_tools: true,
++        minify: Some(false),
++        hash_assets: Some(false),
++    };
++    match statico::build::build(&root, opts) {
++        // The report, plus which source file made each page (the CLI's
++        // report leaves that out).
++        Ok(report) => println!("{}", serde_json::json!({ "report": &report, "pages": &report.page_info })),
++        Err(e) => {
++            eprintln!("{e:#}");
++            std::process::exit(1);
++        }
++    }
++}

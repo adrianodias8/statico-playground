@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Statico Playground</title>
+    <meta name="description" content="Statico, the static site generator, compiled to WebAssembly: edit a site and watch it rebuild in your browser.">
+    <meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#16161a" media="(prefers-color-scheme: dark)">
+    <link rel="preload" href="fonts/HankenGrotesk-normal-100-900.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml-frontmatter/yaml-frontmatter.min.js" defer></script>
+    <script src="app.js" type="module"></script>
+</head>
+<body>
+    <header class="bar">
+        <h1 class="bar__name"><a href="https://adrianodias8.github.io/statico/">Statico</a> <span>Playground</span></h1>
+        <label class="bar__template">
+            <span class="visually-hidden">Starting point</span>
+            <select data-template>
+                <option value="hello">Hello (a tiny site)</option>
+                <option value="blog">Blog template</option>
+                <option value="docs">Docs template</option>
+            </select>
+        </label>
+        <p class="bar__status" data-status aria-live="polite">Loading Statico…</p>
+        <div class="bar__actions">
+            <button type="button" data-new-file>New file</button>
+            <button type="button" data-download>Download .zip</button>
+            <button type="button" data-reset>Reset</button>
+        </div>
+    </header>
+
+    <nav class="tabs" aria-label="Panels">
+        <button type="button" data-tab="files">Files</button>
+        <button type="button" data-tab="code" aria-pressed="true">Code</button>
+        <button type="button" data-tab="preview">Preview</button>
+    </nav>
+
+    <main class="ide" data-ide data-show="code">
+        <section class="pane pane--files" data-pane="files" aria-label="Files">
+            <ul class="tree" data-tree></ul>
+        </section>
+
+        <section class="pane pane--code" data-pane="code" aria-label="Editor">
+            <header class="pane__head">
+                <p class="pane__path" data-path></p>
+                <button type="button" class="link" data-delete-file>Delete</button>
+            </header>
+            <div class="editor" data-editor></div>
+            <p class="binary" data-binary hidden></p>
+        </section>
+
+        <section class="pane pane--preview" data-pane="preview" aria-label="Preview">
+            <header class="pane__head preview__bar">
+                <button type="button" class="icon" data-back aria-label="Back">‹</button>
+                <button type="button" class="icon" data-forward aria-label="Forward">›</button>
+                <form class="preview__address" data-go><label class="visually-hidden" for="address">Page</label><input id="address" data-address spellcheck="false" autocomplete="off"></form>
+                <button type="button" class="link" data-source>Edit this page</button>
+                <a class="link" data-open-tab target="_blank" rel="noopener">New tab</a>
+            </header>
+            <iframe class="preview__frame" data-frame title="Preview of the built site"></iframe>
+        </section>
+    </main>
+
+    <section class="problems" data-problems hidden aria-label="Problems">
+        <header class="problems__head"><h2>Build output</h2><button type="button" class="link" data-close-problems>Hide</button></header>
+        <ol class="problems__list" data-problems-list></ol>
+    </section>
+
+    <noscript><p class="noscript">The playground runs Statico in your browser, so it needs JavaScript.</p></noscript>
+</body>
+</html>

@@ -1,0 +1,5 @@
+.build/
+public/statico.wasm
+public/templates/
+public/statico-version.txt
+.DS_Store

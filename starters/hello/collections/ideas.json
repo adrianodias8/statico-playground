@@ -1,0 +1,5 @@
+[
+  { "title": "Change the name", "text": "Open statico.json and give the site a name of your own.", "new": true },
+  { "title": "Write a note", "text": "Add a .md file in content/notes with a title and a date.", "new": false },
+  { "title": "Restyle it", "text": "assets/css/main.css is plain CSS. Try another accent colour.", "new": false }
+]

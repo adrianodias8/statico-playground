@@ -1,0 +1,23 @@
+<layout src="main.html" title="Home">
+
+<h1>{site.name}</h1>
+<p class="lead">{site.description} Edit any file on the left and this page rebuilds as you type.</p>
+
+<h2>Things to try</h2>
+<ul class="cards">
+    <ForEach collection="ideas" as="idea">
+    <li class="card<If condition="idea.new"> card--new</If>">
+        <h3>{idea.title}</h3>
+        <p>{idea.text}</p>
+    </li>
+    </ForEach>
+</ul>
+
+<h2>Latest notes</h2>
+<ul class="list">
+    <ForEach content="notes" as="note" orderBy="date, desc">
+    <li><a href="{note.url}">{note.title}</a> <time datetime="{note.date}">{note.date|date:"%-d %B %Y"}</time></li>
+    </ForEach>
+</ul>
+
+</layout>

@@ -1,0 +1,10 @@
+<layout src="main.html" title="Notes">
+
+<h1>Notes</h1>
+<ul class="list">
+    <ForEach content="notes" as="note" orderBy="date, desc">
+    <li><a href="{note.url}">{note.title}</a> <span>{note.description}</span></li>
+    </ForEach>
+</ul>
+
+</layout>

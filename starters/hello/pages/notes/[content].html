@@ -1,0 +1,10 @@
+<layout src="main.html" title="{frontmatter.title}">
+
+<article>
+    <h1>{frontmatter.title}</h1>
+    <p class="meta"><time datetime="{frontmatter.date}">{frontmatter.date|date:"%-d %B %Y"}</time> · {content|reading_time} min read</p>
+    {content}
+</article>
+<p><a href="/notes/">All notes</a></p>
+
+</layout>
