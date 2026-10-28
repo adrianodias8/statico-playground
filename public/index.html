@@ -4,12 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Statico Playground</title>
-    <meta name="description" content="Statico, the static site generator, compiled to WebAssembly: edit a site and watch it rebuild in your browser.">
+    <meta name="description" content="Statico, the static site generator, compiled to WebAssembly: edit a site visually or as code and watch it rebuild in your browser.">
     <meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#16161a" media="(prefers-color-scheme: dark)">
     <link rel="preload" href="fonts/HankenGrotesk-normal-100-900.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="tools/tools.css">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js" defer></script>
@@ -21,22 +22,36 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml-frontmatter/yaml-frontmatter.min.js" defer></script>
     <script src="app.js" type="module"></script>
 </head>
-<body>
+<body data-mode="visual">
     <header class="bar">
         <h1 class="bar__name"><a href="https://adrianodias8.github.io/statico/">Statico</a> <span>Playground</span></h1>
+        <div class="seg" role="group" aria-label="Editing mode">
+            <button type="button" data-mode="visual" aria-pressed="true">Visual</button>
+            <button type="button" data-mode="code" aria-pressed="false">Code</button>
+        </div>
         <label class="bar__template">
-            <span class="visually-hidden">Starting point</span>
+            <span class="visually-hidden">Project</span>
             <select data-template>
                 <option value="hello">Hello (a tiny site)</option>
-                <option value="blog">Blog template</option>
-                <option value="docs">Docs template</option>
             </select>
         </label>
         <p class="bar__status" data-status aria-live="polite">Loading Statico…</p>
         <div class="bar__actions">
-            <button type="button" data-new-file>New file</button>
-            <button type="button" data-download>Download .zip</button>
-            <button type="button" data-reset>Reset</button>
+            <span class="visual-only bar__group">
+                <button type="button" data-undo disabled title="Undo (⌘Z)">Undo</button>
+                <button type="button" data-redo disabled title="Redo (⇧⌘Z)">Redo</button>
+            </span>
+            <button type="button" data-tools aria-expanded="false" title="Colour, layout, type and effect tools that write into the site">Tools</button>
+            <details class="menu">
+                <summary>Project</summary>
+                <div class="menu__list">
+                    <button type="button" data-import-folder>Open a site folder…</button>
+                    <button type="button" data-import-zip>Open a .zip…</button>
+                    <button type="button" data-new-file>New file</button>
+                    <button type="button" data-download>Download .zip</button>
+                    <button type="button" data-reset class="danger">Reset changes</button>
+                </div>
+            </details>
         </div>
     </header>
 
@@ -44,9 +59,10 @@
         <button type="button" data-tab="files">Files</button>
         <button type="button" data-tab="code" aria-pressed="true">Code</button>
         <button type="button" data-tab="preview">Preview</button>
+        <button type="button" data-tab="inspect">Inspector</button>
     </nav>
 
-    <main class="ide" data-ide data-show="code">
+    <main class="ide" data-ide data-show="preview" data-mode="visual">
         <section class="pane pane--files" data-pane="files" aria-label="Files">
             <ul class="tree" data-tree></ul>
         </section>
@@ -65,11 +81,25 @@
                 <button type="button" class="icon" data-back aria-label="Back">‹</button>
                 <button type="button" class="icon" data-forward aria-label="Forward">›</button>
                 <form class="preview__address" data-go><label class="visually-hidden" for="address">Page</label><input id="address" data-address spellcheck="false" autocomplete="off"></form>
-                <button type="button" class="link" data-source>Edit this page</button>
+                <span class="visual-only bar__group">
+                    <span class="seg seg--small" role="group" aria-label="Preview width">
+                        <button type="button" data-device="desktop" aria-pressed="true">Desktop</button>
+                        <button type="button" data-device="tablet" aria-pressed="false">Tablet</button>
+                        <button type="button" data-device="phone" aria-pressed="false">Phone</button>
+                    </span>
+                    <button type="button" data-interact aria-pressed="false" title="Use the site as a visitor would: links and buttons work, editing pauses. ⌘/Ctrl-click does the same for one click.">Interact</button>
+                </span>
+                <button type="button" class="link code-only" data-source>Edit this page</button>
                 <a class="link" data-open-tab target="_blank" rel="noopener">New tab</a>
             </header>
-            <iframe class="preview__frame" data-frame title="Preview of the built site"></iframe>
+            <div class="preview__stage" data-stage data-device="desktop">
+                <iframe class="preview__frame" data-frame title="Preview of the built site"></iframe>
+            </div>
         </section>
+
+        <aside class="pane pane--inspect" data-pane="inspect" aria-label="Inspector">
+            <div class="inspect" data-inspect></div>
+        </aside>
     </main>
 
     <section class="problems" data-problems hidden aria-label="Problems">

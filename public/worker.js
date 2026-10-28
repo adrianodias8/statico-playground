@@ -2,6 +2,7 @@
 // files live in an in-memory filesystem (browser_wasi_shim); the built site
 // goes into the Cache API, where sw.js serves it under preview/.
 import { WASI, WASIProcExit, File, Directory, OpenFile, ConsoleStdout, PreopenDirectory } from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.4.2/dist/index.js";
+import { postprocess, stripMarkers } from "./instrument.js";
 
 const CACHE = "statico-preview";
 const TYPES = {
@@ -36,7 +37,7 @@ function collect(dir, prefix = "", out = []) {
 }
 
 self.onmessage = async (e) => {
-  const { id, files, url, previewRoot } = e.data;
+  const { id, files, url, previewRoot, visual } = e.data;
   try {
     module ??= await WebAssembly.compileStreaming(fetch("statico.wasm"));
     const stdout = [];
@@ -59,7 +60,19 @@ self.onmessage = async (e) => {
     }
     const ms = Math.round(performance.now() - started);
     const out = site.dir.contents.get("_site");
-    const built = out instanceof Directory ? collect(out) : [];
+    let built = out instanceof Directory ? collect(out) : [];
+    // A visual build carries source markers: turn them into elements the
+    // editor can find, and keep them out of attributes and <head>.
+    if (visual && code === 0) {
+      const base = new URL(url).pathname.replace(/\/$/, "");
+      const dec = new TextDecoder();
+      const enc = new TextEncoder();
+      built = built.map(([p, data]) => {
+        if (p.endsWith(".html")) return [p, enc.encode(postprocess(dec.decode(data), base))];
+        if (/\.(txt|xml|json|md)$/.test(p)) return [p, enc.encode(stripMarkers(dec.decode(data)))];
+        return [p, data];
+      });
+    }
     if (code === 0) {
       const cache = await caches.open(CACHE);
       const base = new URL(previewRoot, self.location.href);
