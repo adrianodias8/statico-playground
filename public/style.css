@@ -222,3 +222,13 @@ body[data-mode="visual"] .code-only { display: none; }
 }
 body[data-mode="visual"] .tabs [data-tab="files"], body[data-mode="visual"] .tabs [data-tab="code"] { display: none; }
 body[data-mode="code"] .tabs [data-tab="inspect"] { display: none; }
+
+/* Questions asked in the page (ask() in app.js) */
+.ask { width: min(26rem, calc(100vw - 2rem)); padding: 1.1rem 1.2rem; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 12px 40px rgb(0 0 0 / 0.22); }
+.ask::backdrop { background: rgb(0 0 0 / 0.35); }
+.ask form { display: grid; gap: 0.8rem; }
+.ask__text { margin: 0; line-height: 1.45; }
+.ask input { width: 100%; padding: 0.4rem 0.55rem; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; }
+.ask__actions { display: flex; flex-direction: row-reverse; justify-content: flex-start; gap: 0.45rem; }
+.ask__ok { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ask .danger { border-color: var(--error); }
