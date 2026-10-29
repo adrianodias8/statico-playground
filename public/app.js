@@ -8,7 +8,6 @@
 // inside the preview and sends edits back here, where they're written into
 // the real source files: templates, JSON collections, front matter, Markdown.
 import { instrument, parse, splitFrontMatter, fmValue } from "./instrument.js";
-import { createTools } from "./tools/index.js";
 
 const $ = (sel) => document.querySelector(sel);
 const previewRoot = new URL("preview/", location.href);
@@ -479,6 +478,16 @@ async function toMarkdown(html) {
     await loadScript("https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js");
     turndown = new window.TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "*" });
     turndown.use(window.turndownPluginGfm.gfm);
+    // "- item" and "1. item", as Markdown is usually written (Turndown pads them to "-   item")
+    turndown.addRule("listItem", {
+      filter: "li",
+      replacement: (content, n, o) => {
+        const list = n.parentNode;
+        const prefix = list.nodeName === "OL" ? `${Number(list.getAttribute("start") || 1) + [...list.children].indexOf(n)}. ` : `${o.bulletListMarker} `;
+        content = content.replace(/^\n+/, "").replace(/\n+$/, "\n").replace(/\n/gm, `\n${" ".repeat(prefix.length)}`);
+        return prefix + content + (n.nextSibling && !/\n$/.test(content) ? "\n" : "");
+      },
+    });
     // Highlighted code comes back as <pre data-lang> full of spans: keep the text and the language
     turndown.addRule("fencedCode", {
       filter: (n) => n.nodeName === "PRE",
@@ -497,16 +506,20 @@ async function toMarkdown(html) {
 // ---- What the editor in the preview calls
 
 async function commit(t, value, html) {
+  let saved = false;
   try {
     await fresh();
+    // A Markdown body that reads the same as before is left as it is
+    const md = t.kind === "md" ? (await toMarkdown(value)).trim() : null;
+    const mdFile = md !== null && map.data[t.id].file;
+    if (md !== null && md === textOf(mdFile).slice(splitFrontMatter(textOf(mdFile)).bodyStart).trim()) { build({ quiet: true }); return; }
     checkpoint();
+    saved = true;
     if (t.kind === "field") writeData(t.id, value);
     else if (t.kind === "md") {
-      const entry = map.data[t.id];
-      const md = await toMarkdown(value);
-      const text = textOf(entry.file);
+      const text = textOf(mdFile);
       const { bodyStart } = splitFrontMatter(text);
-      setText(entry.file, `${text.slice(0, bodyStart)}\n${md.trim()}\n`);
+      setText(mdFile, `${text.slice(0, bodyStart)}\n${md}\n`);
     } else {
       const entry = map.els[t.id];
       const lead = entry.original.match(/^\s*/)[0];
@@ -517,8 +530,7 @@ async function commit(t, value, html) {
     touched();
     build({ quiet: t.kind !== "md" });
   } catch (err) {
-    history.pop();
-    drawUndo();
+    if (saved) { history.pop(); drawUndo(); }
     status.textContent = String(err.message || err);
     status.dataset.state = "error";
     build({ keepScroll: true });
@@ -651,6 +663,29 @@ const section = (title, ...kids) => h("section", { class: "insp" }, h("h2", { cl
 const note = (text) => h("p", { class: "insp__note" }, text);
 const actions = (...btns) => h("div", { class: "insp__actions" }, ...btns);
 const btn = (label, onclick, extra = {}) => h("button", { type: "button", onclick, ...extra }, label);
+// Questions asked in the page: some embedded browsers block confirm() and
+// prompt(), answering Cancel without showing anything. With value, it asks
+// for text and resolves to it (null on cancel); otherwise to true or false.
+function ask(message, { value, ok = "OK", cancel = "Cancel", danger = false } = {}) {
+  return new Promise((resolve) => {
+    const input = value === undefined ? null : h("input", { type: "text", value, "aria-label": message });
+    const d = h("dialog", { class: "ask" }, h("form", { method: "dialog" },
+      h("p", { class: "ask__text" }, message),
+      input,
+      h("div", { class: "ask__actions" },
+        h("button", { value: "ok", class: danger ? "danger" : "ask__ok" }, ok),
+        cancel ? h("button", { value: "cancel" }, cancel) : null)));
+    d.addEventListener("close", () => {
+      d.remove();
+      const yes = d.returnValue === "ok";
+      resolve(input ? (yes ? input.value : null) : yes);
+    });
+    document.body.append(d);
+    d.showModal();
+    input?.select();
+  });
+}
+const tell = (message) => ask(message, { cancel: null });
 function field(label, value, onchange, opts = {}) {
   const id = `f${Math.random().toString(36).slice(2, 8)}`;
   const long = opts.long ?? (String(value ?? "").length > 48 || String(value ?? "").includes("\n"));
@@ -686,7 +721,6 @@ function openCode(file, offset) {
 
 function renderInspector() {
   const root = $("[data-inspect]");
-  tools.refresh();
   if (mode !== "visual") return;
   const focused = document.activeElement;
   if (root.contains(focused) && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA")) return;
@@ -859,7 +893,7 @@ function pagePanel() {
   const kids = [h("p", { class: "insp__source" }, btn(md || page.source, () => openCode(md || page.source), { class: "link" }), ` → ${page.url}`)];
   if (md) {
     kids.push(...frontMatterForm(md));
-    kids.push(actions(btn("Delete this post", () => { if (confirm(`Delete ${md}?`)) change(() => { delete files[md]; previewPath = "/"; }); }, { class: "danger" })));
+    kids.push(actions(btn("Delete this post", async () => { if (await ask(`Delete ${md}?`, { ok: "Delete", danger: true })) change(() => { delete files[md]; previewPath = "/"; }); }, { class: "danger" })));
     return section("Page", ...kids);
   }
   const src = textOf(page.source);
@@ -875,17 +909,17 @@ function pagePanel() {
   kids.push(actions(
     btn("New page", () => newPage(page, false)),
     btn("Duplicate", () => newPage(page, true)),
-    page.source.includes("[") ? null : btn("Delete", () => { if (confirm(`Delete ${page.source}?`)) change(() => { delete files[page.source]; previewPath = "/"; }); }, { class: "danger" }),
+    page.source.includes("[") ? null : btn("Delete", async () => { if (await ask(`Delete ${page.source}?`, { ok: "Delete", danger: true })) change(() => { delete files[page.source]; previewPath = "/"; }); }, { class: "danger" }),
   ));
   return section("Page", ...kids);
 }
-function newPage(page, copy) {
-  const name = prompt("Address of the new page, for example about or menu/autumn", copy ? `${page.url.replace(/^\/|\/$/g, "") || "home"}-copy` : "new-page");
+async function newPage(page, copy) {
+  const name = await ask("Address of the new page, for example about or menu/autumn", { value: copy ? `${page.url.replace(/^\/|\/$/g, "") || "home"}-copy` : "new-page", ok: "Create" });
   if (!name) return;
   const slug = name.trim().replace(/^\/+|\/+$/g, "").toLowerCase().replace(/[^a-z0-9/_-]+/g, "-");
   if (!slug) return;
   const path = `pages/${slug}.html`;
-  if (path in files || `pages/${slug}/index.html` in files) { alert(`There is already a page at /${slug}/`); return; }
+  if (path in files || `pages/${slug}/index.html` in files) { tell(`There is already a page at /${slug}/`); return; }
   const src = textOf(page.source);
   const layout = /<layout\b[^>]*\bsrc="([^"]+)"/.exec(src)?.[1];
   const title = slug.split("/").pop().replace(/[-_]/g, " ").replace(/^./, (c) => c.toUpperCase());
@@ -925,12 +959,12 @@ function contentPanel() {
   }
   return h("details", { class: "insp insp--fold", open: !selection }, h("summary", { class: "insp__title" }, "Content"), ...kids);
 }
-function newPost(folder, siblings) {
-  const name = prompt("File name for the new post", "my-new-post");
+async function newPost(folder, siblings) {
+  const name = await ask("File name for the new post", { value: "my-new-post", ok: "Create" });
   if (!name) return;
   const slug = name.trim().toLowerCase().replace(/\.md$/, "").replace(/[^a-z0-9_-]+/g, "-");
   const path = `content/${folder}/${slug}.md`;
-  if (path in files) { alert(`${path} already exists`); return; }
+  if (path in files) { tell(`${path} already exists`); return; }
   // Same front matter fields as the newest neighbour, with fresh values
   const like = frontMatter(siblings.sort().at(-1) || "");
   const today = new Date().toISOString().slice(0, 10);
@@ -944,8 +978,9 @@ function newPost(folder, siblings) {
 
 // ==== Files: new, delete, import, download, reset ============================
 
-$("[data-new-file]").addEventListener("click", () => {
-  const p = prompt("New file path, for example content/notes/my-note.md", "content/notes/my-note.md");
+$("[data-new-file]").addEventListener("click", async () => {
+  closeMenus();
+  const p = await ask("New file path, for example content/notes/my-note.md", { value: "content/notes/my-note.md", ok: "Create" });
   if (!p) return;
   const path = p.trim().replace(/^\/+/, "");
   if (!path || path.endsWith("/")) return;
@@ -955,8 +990,8 @@ $("[data-new-file]").addEventListener("click", () => {
   show("code");
   buildSoon();
 });
-$("[data-delete-file]").addEventListener("click", () => {
-  if (!current || !confirm(`Delete ${current}?`)) return;
+$("[data-delete-file]").addEventListener("click", async () => {
+  if (!current || !(await ask(`Delete ${current}?`, { ok: "Delete", danger: true }))) return;
   checkpoint();
   delete files[current];
   touched();
@@ -965,15 +1000,18 @@ $("[data-delete-file]").addEventListener("click", () => {
   buildSoon();
 });
 $("[data-reset]").addEventListener("click", async () => {
-  if (!confirm("Go back to the original files? Your changes will be lost.")) return;
+  closeMenus();
+  if (!(await ask("Go back to the original files? Your changes will be lost.", { ok: "Reset", danger: true }))) return;
   await db.del("project");
   await start(template, true);
 });
 $("[data-template]").addEventListener("change", async (e) => {
   const changed = Object.keys(files).some((p) => (isText(files[p]) ? files[p].text !== shipped[p]?.text : files[p].base64 !== shipped[p]?.base64)) || deletedFrom().length;
-  if (changed && !confirm("Switch? Your changes to this project will be lost.")) { e.target.value = template; return; }
+  const to = e.target.value;
+  e.target.value = template;
+  if (changed && !(await ask(`Switch to ${TEMPLATES[to] || "the imported site"}? Your changes to this project will be lost.`, { ok: "Switch", danger: true }))) return;
   await db.del("project");
-  await start(e.target.value, true);
+  await start(to, true);
 });
 
 // Import a site made elsewhere (by hand, or generated): a folder or a .zip
@@ -994,9 +1032,9 @@ async function importEntries(entries, name) {
     if (!rel || SKIP_DIRS.test(rel)) continue;
     try { out[rel] = { text: dec.decode(bytes) }; } catch { out[rel] = { base64: toBase64(bytes) }; }
   }
-  if (!Object.keys(out).some((p) => p.startsWith("pages/"))) { alert("That doesn't look like a Statico site: there is no pages/ folder."); return; }
+  if (!Object.keys(out).some((p) => p.startsWith("pages/"))) { tell("That doesn't look like a Statico site: there is no pages/ folder."); return; }
   const changed = Object.keys(files).some((p) => (isText(files[p]) ? files[p].text !== shipped[p]?.text : false)) || deletedFrom().length;
-  if (changed && !confirm("Replace the current project with this one? Your changes will be lost.")) return;
+  if (changed && !(await ask("Replace the current project with this one? Your changes will be lost.", { ok: "Replace", danger: true }))) return;
   await db.set("import", { name, files: out });
   await db.del("project");
   drawTemplates(name);
@@ -1045,7 +1083,7 @@ pickFolder.addEventListener("change", async () => {
 pickZip.addEventListener("change", async () => {
   const f = pickZip.files[0];
   if (!f) return;
-  try { await importEntries(await readZip(await f.arrayBuffer()), f.name.replace(/\.zip$/i, "")); } catch (err) { alert(String(err.message || err)); }
+  try { await importEntries(await readZip(await f.arrayBuffer()), f.name.replace(/\.zip$/i, "")); } catch (err) { tell(String(err.message || err)); }
   pickZip.value = "";
 });
 $("[data-import-folder]").addEventListener("click", () => { pickFolder.click(); closeMenus(); });
@@ -1087,141 +1125,6 @@ $("[data-download]").addEventListener("click", () => {
   a.download = "my-site.zip";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-});
-
-// ==== Tools: what the Tools drawer (tools/) may read and write ============
-
-let batching = false;
-// Tools' writes: nested calls join the outer change(); returns success
-function inBatch(fn) {
-  if (batching) { fn(); return true; }
-  batching = true;
-  let ok;
-  try { ok = change(fn); } finally { batching = false; }
-  drawTree();
-  return ok;
-}
-const selectedEl = () => (mode === "visual" && selection && ["element", "block", "image"].includes(selection.kind) ? map.els[selection.id] : null);
-function headTargets() {
-  const has = (p) => isText(files[p]) && /<\/head>/i.test(files[p].text);
-  const layouts = Object.keys(files).filter((p) => p.startsWith("layouts/") && has(p));
-  return layouts.length ? layouts : Object.keys(files).filter((p) => p.startsWith("pages/") && has(p));
-}
-const tools = createTools({
-  files: () => Object.keys(files).sort(),
-  read: (p) => (isText(files[p]) ? files[p].text : null),
-  bytes: (p) => (p in files ? bytesOf(files[p]) : null),
-  // Text or bytes; several writes inside change() are one undo step
-  write(p, data) { return inBatch(() => { files[p] = typeof data === "string" ? { text: data } : { base64: toBase64(data) }; }); },
-  remove(p) { return inBatch(() => { delete files[p]; }); },
-  change: inBatch,
-  cssFiles: () => Object.keys(files).filter((p) => p.endsWith(".css") && isText(files[p])).sort(),
-  defaultCss() {
-    for (const p of Object.keys(files).filter((f) => f.startsWith("layouts/"))) {
-      for (const m of textOf(p).matchAll(/<link[^>]+href="\/?([^"{]+\.css)"/g)) if (isText(files[m[1]])) return m[1];
-    }
-    return Object.keys(files).find((p) => p.endsWith(".css")) || null;
-  },
-  selection() {
-    const e = selectedEl();
-    return e ? { tag: e.tag, file: e.file, label: `<${e.tag}> in ${e.file}`, short: `<${e.tag}>`, classes: (e.attrs?.class?.[2] || "").split(/\s+/).filter(Boolean) } : null;
-  },
-  addClass(name) {
-    const e = selectedEl();
-    if (!e) throw new Error("Select an element in the preview first");
-    if (textOf(e.file).slice(e.start, e.start + 1 + e.tag.length).toLowerCase() !== `<${e.tag}`) throw new Error("The page is still rebuilding; try again in a moment");
-    const a = e.attrs?.class;
-    if (!a) { addAttr(e, "class", name); return; }
-    if (a[2].split(/\s+/).includes(name)) return;
-    replaceRange(e.file, a[0], a[1], a[2], a[2].trim() ? `${a[2]} ${name}` : name);
-  },
-  // Sets an attribute written in the template (one that comes from data is
-  // changed in the data instead)
-  setAttr(name, value) {
-    const e = selectedEl();
-    if (!e) throw new Error("Select an element in the preview first");
-    const dataId = selection.attrs?.[name];
-    return inBatch(() => {
-      if (dataId !== undefined && map.data[dataId]) writeData(dataId, value);
-      else if (e.attrs?.[name]) replaceRange(e.file, e.attrs[name][0], e.attrs[name][1], e.attrs[name][2], escAttr(value));
-      else addAttr(e, name, value);
-    });
-  },
-  insertAfter(html) {
-    const e = selectedEl();
-    if (!e) throw new Error("Select an element in the preview first");
-    const { indent } = lineSpan(textOf(e.file), e.start, e.end);
-    replaceRange(e.file, e.end, e.end, "", `\n${html.split("\n").map((l) => (l ? indent + l : l)).join("\n")}`);
-  },
-  // Into the <head> of every layout (or full-document page), between
-  // tools:key comments so a second call replaces the first
-  addToHead(html, key) {
-    const targets = headTargets();
-    if (!targets.length) throw new Error("No layout with a <head> to add to");
-    const ok = inBatch(() => {
-      for (const p of targets) {
-        let src = textOf(p);
-        const begin = `<!-- tools:${key} -->`;
-        const end = `<!-- /tools:${key} -->`;
-        const i = src.indexOf(begin);
-        const j = i >= 0 ? src.indexOf(end, i) : -1;
-        if (i >= 0 && j >= 0) { const s = lineSpan(src, i, j + end.length); src = src.slice(0, s.a) + src.slice(s.b); }
-        const at = src.search(/[ \t]*<\/head>/i);
-        const close = /^[ \t]*/.exec(src.slice(at))[0];
-        const before = src.slice(0, at).trimEnd().split("\n").at(-1);
-        const pad = /^[ \t]*/.exec(before)[0] || `${close}    `;
-        const block = [begin, ...html.trim().split("\n"), end].map((l) => pad + l.trim()).join("\n");
-        setText(p, `${src.slice(0, at)}${block}\n${src.slice(at)}`);
-      }
-    });
-    return ok ? targets : null;
-  },
-  headTargets,
-  site() {
-    const cfg = "statico.json" in files ? "statico.json" : "static.json" in files ? "static.json" : null;
-    try { return cfg ? JSON.parse(textOf(cfg)).site || {} : {}; } catch { return {}; }
-  },
-  setSite(patch) {
-    const cfg = "statico.json" in files ? "statico.json" : "static.json" in files ? "static.json" : null;
-    if (!cfg) throw new Error("This project has no statico.json");
-    return inBatch(() => editJson(cfg, (d) => {
-      d.site ??= {};
-      for (const [k, v] of Object.entries(patch)) if (v === "" || v == null) delete d.site[k]; else d.site[k] = v;
-    }));
-  },
-  // The page in the preview: its source file and the fields it sets
-  // (front matter for Markdown, attributes of <layout> otherwise)
-  page() {
-    const page = pages.find((p) => p.url === previewPath);
-    if (!page) return null;
-    const md = markdownOf(page);
-    if (md) return { url: page.url, file: md, kind: "markdown", fields: Object.fromEntries(frontMatter(md).map((f) => [f.key, f.value])) };
-    const tag = parse(textOf(page.source)).children.find((c) => c.lname === "layout");
-    return { url: page.url, file: page.source, kind: tag ? "layout" : "html", fields: tag ? Object.fromEntries(tag.attrs.filter((a) => a.value !== null && a.name !== "src").map((a) => [a.name, a.value])) : {} };
-  },
-  setPage(key, value) {
-    const page = pages.find((p) => p.url === previewPath);
-    if (!page) throw new Error(`Nothing built at ${previewPath}`);
-    const md = markdownOf(page);
-    return inBatch(() => {
-      if (md) { setFrontMatter(md, key, value); return; }
-      const tag = parse(textOf(page.source)).children.find((c) => c.lname === "layout");
-      if (!tag) throw new Error(`${page.source} has no <layout> tag to set ${key} on`);
-      const a = tag.attrs.find((x) => x.name === key && x.value !== null);
-      if (a) replaceRange(page.source, a.vStart, a.vEnd, a.value, escAttr(value));
-      else replaceRange(page.source, tag.nameEnd, tag.nameEnd, "", ` ${key}="${escAttr(value)}"`);
-    });
-  },
-  pages: () => pages.map((p) => ({ url: p.url, source: p.source })),
-  previewPath: () => previewPath,
-  previewUrl: (p = previewPath) => fullUrl(p),
-  notify(msg, state = "ok") { status.textContent = msg; status.dataset.state = state; },
-  openFile: (p) => openCode(p),
-  closed() { $("[data-tools]").setAttribute("aria-expanded", "false"); },
-});
-$("[data-tools]").addEventListener("click", () => {
-  tools.toggle();
-  $("[data-tools]").setAttribute("aria-expanded", String(tools.isOpen));
 });
 
 // ---- Start
@@ -1301,7 +1204,5 @@ async function boot() {
     status.textContent = String(err.message || err);
     status.dataset.state = "error";
   }
-  const tool = new URLSearchParams(location.search).get("tool");
-  if (tool !== null) { tools.open(tool || undefined); $("[data-tools]").setAttribute("aria-expanded", "true"); }
 }
 boot();

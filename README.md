@@ -16,9 +16,6 @@ the page.
   rebuilds. **Code** mode is the file tree and editor, as before.
 - Every edit rebuilds the whole site; the preview is the built site itself,
   so links, CSS, fonts and images all work.
-- **Tools**: 39 design tools (colour, layout, type, effects, utilities, SEO)
-  whose output goes straight into the site: a stylesheet, the selected
-  element, the `<head>`, `statico.json` or `assets/`.
 - **Download .zip** gives you the project, ready for `statico dev`.
 
 ## Visual editing
@@ -52,36 +49,6 @@ place; YAML, TOML and CSV collections are edited in Code mode.
 The annotated copy is only ever built for the preview. Downloads, and what
 you'd commit, are your files as they are.
 
-## Tools
-
-**Tools** in the bar opens a drawer of design tools beside the preview
-([`public/tools/`](public/tools/)). Each one can copy its code, and most
-can also put it in the project:
-
-- **Add to stylesheet** writes the rule into any of the site's CSS files,
-  between `/* tools: … */` comments, so adding again updates it in place.
-- **Apply to `<h1>`** (or whatever is selected in the preview) adds a class
-  to that element in its template and the rule to the stylesheet. After
-  either, the rule follows the tool's settings as you change them.
-- **Insert after** puts an HTML snippet (a divider, a button, a loader) after
-  the selected element.
-- Tools with files of their own write them into the project: favicons and a
-  web manifest into `public/` with the tags in each layout's `<head>`,
-  self-hosted fonts into `assets/fonts/`, images and SVGs into
-  `assets/images/`. Meta tags are saved to `statico.json` and the page.
-
-Colour tools start from the colours the site's stylesheets already define.
-Every change is one step in Undo.
-
-| Group | Tools |
-|---|---|
-| Color | Contrast checker, Color converter (also a whole stylesheet at once), Gradient generator, Gradient text, Brand colors, CSS filter, OKLCH color picker |
-| Layout | CSS Grid, Flexbox, Spacing scale, Responsive preview (the site's own pages), Aspect ratio, Section divider |
-| Typography | Font pairing (self-hosted or from Google Fonts, mapped onto the site's own font variables), Fluid type & space, PX ↔ REM, Clamp |
-| Effects | Shadows, Text shadow, Glassmorphism, Neumorphism, Triangle, Clip path, Blobs, Patterns, Text stroke, Transitions, Animations, Buttons |
-| Utilities | SVG optimizer, Base64, Lorem ipsum, Placeholder, Favicons, Loaders |
-| Code & SEO | Tailwind ↔ CSS, Meta tags (saved where `{seo}` reads them), Easing curves, Radius |
-
 ## How it works
 
 | Piece | What it does |
@@ -92,7 +59,6 @@ Every change is one step in Undo.
 | `public/app.js` | The file list, the editor ([CodeMirror 5](https://codemirror.net/5/)), the preview, visual mode and its inspector |
 | `public/instrument.js` | Annotates a copy of the project for a visual build, and cleans the built pages |
 | `public/editor-frame.js` | Runs inside the preview in visual mode: outlines, inline editing, the toolbar |
-| `public/tools/` | The Tools drawer (`index.js`), the controls and colour maths tools share (`kit.js`), and one module per group |
 
 Statico's own repository is not changed for any of this.
 `wasm/build.sh` checks Statico out at a pinned commit into `.build/`,
